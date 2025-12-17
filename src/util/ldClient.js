@@ -68,7 +68,7 @@ async function doInitialize() {
   // Create the FileFeatureStore
   featureStore = new FileFeatureStore({
     path: FLAG_CACHE_FILE,
-    readOnly: false  // Allow SDK to persist updates
+    readOnly: true  // Allow SDK to persist updates
   });
 
   // Try to load existing cache
