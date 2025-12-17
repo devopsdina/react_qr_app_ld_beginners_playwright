@@ -141,9 +141,9 @@ This project includes a resilient server-side LaunchDarkly implementation using 
 │     ├──────────────┬──────────────────────────┤                 │
 │     │     YES      │          NO              │                 │
 │     ├──────────────┼──────────────────────────┤                 │
-│     │ Cache auto-  │ Uses cached flags        │                 │
-│     │ updates with │ Full targeting rules     │                 │
-│     │ fresh data    │                          │                 │
+│     │ Connected    │ Uses cached flags        │                 │
+│     │ via streaming│ Full targeting rules     │                 │
+│     │ for updates  │                          │                 │
 │     └──────────────┴──────────────────────────┘                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
