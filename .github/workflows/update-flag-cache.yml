@@ -1,0 +1,114 @@
+# This workflow exports LaunchDarkly flags to flag-cache.json nightly
+# and commits the changes if any flags have changed.
+#
+# Required secrets:
+#   LD_API_KEY      - LaunchDarkly API access token
+#   LD_PROJECT_KEY  - Your LaunchDarkly project key
+#   LD_ENVIRONMENT  - Environment key (e.g., "production", "dev")
+
+name: Update Flag Cache
+
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      force_commit:
+        description: 'Force commit even if no changes detected'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  update-cache:
+    runs-on: ubuntu-latest
+    
+    # Only run if secrets are configured
+    env:
+      HAS_SECRETS: ${{ secrets.LD_API_KEY != '' }}
+    
+    steps:
+      - name: Check for required secrets
+        if: env.HAS_SECRETS != 'true'
+        run: |
+          echo "❌ Required secrets are not configured"
+          echo "Please add LD_API_KEY, LD_PROJECT_KEY, and LD_ENVIRONMENT to your repository secrets"
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Export flags to cache
+        env:
+          LD_API_KEY: ${{ secrets.LD_API_KEY }}
+          LD_PROJECT_KEY: ${{ secrets.LD_PROJECT_KEY }}
+          LD_ENVIRONMENT: ${{ secrets.LD_ENVIRONMENT }}
+        run: npm run export-flags
+      
+      - name: Check for changes
+        id: git-check
+        run: |
+          # Check if flag-cache.json has changed
+          if git diff --quiet flag-cache.json 2>/dev/null; then
+            echo "No changes to flag-cache.json"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in flag-cache.json"
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Show diff (if changed)
+        if: steps.git-check.outputs.changed == 'true'
+        run: |
+          echo "📝 Changes to flag-cache.json:"
+          git diff --stat flag-cache.json || true
+      
+      - name: Commit and push if changed
+        if: steps.git-check.outputs.changed == 'true' || github.event.inputs.force_commit == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add flag-cache.json
+          
+          # Get count of flags for commit message
+          FLAG_COUNT=$(node -e "console.log(Object.keys(require('./flag-cache.json').data.features).length)")
+          
+          git commit -m "chore: update flag cache (${FLAG_COUNT} flags) [skip ci]" || echo "Nothing to commit"
+          git push
+          
+          echo "✅ Flag cache updated and committed"
+      
+      - name: Summary
+        run: |
+          echo "## Flag Cache Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f flag-cache.json ]; then
+            FLAG_COUNT=$(node -e "console.log(Object.keys(require('./flag-cache.json').data.features).length)")
+            SEGMENT_COUNT=$(node -e "console.log(Object.keys(require('./flag-cache.json').data.segments).length)")
+            UPDATED=$(node -e "console.log(require('./flag-cache.json')._metadata?.exportedAt || 'unknown')")
+            
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Flags | ${FLAG_COUNT} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Segments | ${SEGMENT_COUNT} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Updated | ${UPDATED} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Changes | ${{ steps.git-check.outputs.changed }} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ flag-cache.json not found" >> $GITHUB_STEP_SUMMARY
+          fi
+

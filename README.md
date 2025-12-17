@@ -112,3 +112,109 @@ If you want to create a new project with all the right flags, then you can eithe
 
 1. On your GitHub repository, go to Settings > Pages and ensure you're using the `gh-pages` branch in the `root` directory
 1. When you're ready, `npm run deploy` to deploy to a new `gh-pages` branch of your repository
+
+---
+
+## Server-Side SDK with Offline Caching
+
+This project includes a resilient server-side LaunchDarkly implementation using a `FileFeatureStore` that:
+
+- **Loads cached flags on startup** for instant availability
+- **Connects to LaunchDarkly streaming** for live updates
+- **Auto-persists streaming updates** to the cache file
+- **Works offline** using cached flag data with full targeting rules
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    APPLICATION STARTUP                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. Load flag-cache.json into FileFeatureStore                  │
+│     └─► Flags immediately available for evaluation!             │
+│                    ↓                                            │
+│  2. SDK connects to LaunchDarkly streaming                      │
+│                    ↓                                            │
+│     ┌─────────────────────────────────────────┐                 │
+│     │  STREAMING SUCCEEDS?                    │                 │
+│     ├──────────────┬──────────────────────────┤                 │
+│     │     YES      │          NO              │                 │
+│     ├──────────────┼──────────────────────────┤                 │
+│     │ Cache auto-  │ Uses cached flags        │                 │
+│     │ updates with │ Full targeting rules     │                 │
+│     │ fresh data    │                          │                 │
+│     └──────────────┴──────────────────────────┘                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Environment Variables
+
+Add these to your `.env` file:
+
+```bash
+# Server-side SDK key (required for server)
+LD_SDK_KEY=sdk-your-sdk-key-here
+
+# API credentials for flag export script (optional but recommended)
+LD_API_KEY=api-your-api-access-token-here
+LD_PROJECT_KEY=your-project-key
+LD_ENVIRONMENT=production
+```
+
+### npm Scripts
+
+| Script | Command | Purpose |
+|--------|---------|---------|
+| `npm run server` | `node server.js` | Start the Express server |
+| `npm run export-flags` | `node scripts/export-flags.js` | Export flags to `flag-cache.json` |
+| `npm run test-ld` | `node scripts/test-ld-client.js` | Test the LD client setup |
+
+### Quick Start (Server-Side)
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Export initial flag cache (requires LD_API_KEY, LD_PROJECT_KEY, LD_ENVIRONMENT)
+npm run export-flags
+
+# 3. Test the setup
+npm run test-ld
+
+# 4. Start the server
+npm run server
+```
+
+### API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/bootstrap` | GET | Returns evaluated flags for client SDK bootstrap |
+| `/api/bootstrap?userKey=123` | GET | Bootstrap with specific user context |
+| `/api/ld-status` | GET | Returns LD client status |
+| `/api/flag-cache` | GET | Returns raw `flag-cache.json` contents |
+
+### GitHub Actions (Nightly Cache Refresh)
+
+A GitHub Actions workflow (`.github/workflows/update-flag-cache.yml`) runs nightly at 2 AM UTC to refresh the flag cache.
+
+**Required GitHub Secrets:**
+
+| Secret | Purpose |
+|--------|---------|
+| `LD_API_KEY` | LaunchDarkly API access token |
+| `LD_PROJECT_KEY` | Your project key |
+| `LD_ENVIRONMENT` | Environment (e.g., `dev`, `production`) |
+
+Add these in **Settings → Secrets and variables → Actions**.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/util/FileFeatureStore.js` | Custom feature store that reads/writes `flag-cache.json` |
+| `src/util/ldClient.js` | Singleton LD client using FileFeatureStore |
+| `scripts/export-flags.js` | Export flags via REST API to native SDK format |
+| `scripts/test-ld-client.js` | Test suite for the server-side setup |
+| `flag-cache.json` | Cached flag data (auto-generated) |
